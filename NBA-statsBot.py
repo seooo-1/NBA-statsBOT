@@ -62,20 +62,63 @@ def load_model():
     print("Model loaded...")
     return model
 
+# 자연어 질문에서 선수 이름과 스탯 추출
+def parse_question(question, data):
+    # 선수 이름 추출
+    player_names = data['PLAYER'].tolist()
+    player_name = next((name for name in player_names if name.lower() in question.lower()), None)
+
+    # 스탯 이름 추출
+    stat_keywords = {
+        "PTS": ["points", "득점", "점수"],
+        "REB": ["rebounds", "리바운드"],
+        "AST": ["assists", "어시스트"],
+        "STL": ["steals", "스틸"],
+        "BLK": ["blocks", "블록"],
+        "FG_PCT": ["field goal percentage", "필드골 성공률"],
+        "FG3M": ["three-pointers made", "3점슛"],
+        "FT_PCT": ["free throw percentage", "자유투 성공률"]
+    }
+    stat_name = next((key for key, keywords in stat_keywords.items() if any(keyword in question.lower() for keyword in keywords)), None)
+
+    return player_name, stat_name
+
 # 데이터와 모델 로드
 data = fetch_nba_data()
 model = load_model()
 
-if "chat_session" not in st.session_state:    
+# 세션 상태 초기화
+if "chat_session" not in st.session_state:
     st.session_state["chat_session"] = model.start_chat(history=[])
 
+# 이전 채팅 기록 표시
 for content in st.session_state.chat_session.history:
     with st.chat_message("ai" if content.role == "model" else "user"):
         st.markdown(content.parts[0].text)
 
-if prompt := st.chat_input("메시지를 입력하세요."):    
+# 사용자 입력 처리
+if prompt := st.chat_input("선수와 알고 싶은 내용을 물어보세요! (예: LeBron James의 점수를 알려줘)"):
     with st.chat_message("user"):
         st.markdown(prompt)
+
+    # 질문 파싱하여 선수와 스탯 추출
+    player_name, stat_name = parse_question(prompt, data)
+
+    # 결과 처리
+    if player_name and stat_name:
+        if player_name in data['PLAYER'].values:
+            player_stats = data[data['PLAYER'] == player_name]
+            if stat_name in player_stats.columns:
+                stat_value = player_stats[stat_name].values[0]
+                user_query = f"{player_name}의 {stat_name}은 {stat_value}입니다. 이는 24-25 시즌 데이터이며 신뢰할 수 있는 데이터이니 이를 가정하고 해당 데이터에 대한 분석을 해주세요"
+            else:
+                user_query = f"{stat_name}은(는) 데이터에 없는 스탯입니다."
+        else:
+            user_query = f"{player_name}은(는) 데이터에 없는 선수입니다."
+    else:
+        user_query = "질문에서 선수 이름이나 스탯을 찾을 수 없습니다. 다시 질문해 주세요!"
+
+    # Gemini 모델 응답 생성
     with st.chat_message("ai"):
-        response = st.session_state.chat_session.send_message(prompt)        
+        response = st.session_state.chat_session.send_message(user_query)
         st.markdown(response.text)
